@@ -1,0 +1,60 @@
+sudo apt install wget apt-transport-https gnupg lsb-release
+
+
+
+pipeline {
+    agent any
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+    }
+    stages {
+        stage('Git-Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/shan2250/Vitual-Browser.git'
+            }
+        }
+        stage('OWAPS Dependency Check') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'DC'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage('sonarqube') {
+            steps {
+                withSonarQubeEnv('sonar') {
+                    sh "$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectKey=VirtualBrowser -Dsonar.projectName=VirtualBrowser"
+                }
+            }
+        }
+        stage('Docker Build & Tag Image') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'Docker') {
+                        dir('/home/ubuntu/.jenkins/workspace/virtual-Browser/.docker/firefox') {
+                            sh "docker build -t shan2250/vb:latest ."
+                        }
+                    }
+                }
+            }
+        }
+        stage('Trivy docker scan') {
+            steps {
+                sh "trivy image shan2250/vb:latest"
+            }
+        }
+        stage('Docker Push Image') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'Docker') {
+                        sh "docker push shan2250/vb:latest"
+                    }
+                }
+            }
+        }
+        stage('Deploye') {
+            steps {
+                sh "docker-compose up -d"
+            }
+        }
+    }
+}
